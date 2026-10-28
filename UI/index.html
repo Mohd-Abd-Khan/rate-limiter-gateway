@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gateway Console</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --border: #ddd;
+    --text: #111;
+    --muted: #777;
+    --allow: #1a7f4e;
+    --block: #b3261e;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1{ font-size:18px; font-weight:600; margin-bottom:2px; }
+  .sub{ color:var(--muted); font-size:13px; margin-bottom:20px; }
+
+  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  input, select, button{
+    font-family: inherit;
+    font-size:13px;
+    padding:6px 10px;
+    border:1px solid var(--border);
+    border-radius:4px;
+    background:#fff;
+    color:var(--text);
+  }
+  button{ cursor:pointer; }
+  button:hover{ background:#f2f2f2; }
+  button.active{ background:#111; color:#fff; }
+
+  .status-line{ font-size:13px; color:var(--muted); margin-bottom:16px; }
+  .status-line b{ color:var(--text); }
+  .status-line .allow{ color:var(--allow); font-weight:600; }
+  .status-line .block{ color:var(--block); font-weight:600; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th, td{ text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); }
+  th{ color:var(--muted); font-weight:500; font-size:12px; }
+  .ALLOW{ color:var(--allow); font-weight:600; }
+  .BLOCK{ color:var(--block); font-weight:600; }
+
+  .section{ margin-bottom:24px; }
+  .section-title{ font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .log-box{ max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:4px; }
+  .empty{ color:var(--muted); font-size:13px; padding:12px; }
+</style>
+</head>
+<body>
+
+  <h1>Gateway Console</h1>
+  <div class="sub">rate limiter test client</div>
+
+  <div class="row">
+    <label>Backend:</label>
+    <input id="backendUrl" value="http://localhost:8080" style="width:200px" spellcheck="false">
+    <select id="targetRoute">
+      <option value="/api/posts">/api/posts</option>
+      <option value="/api/users">/api/users</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <span style="font-size:13px; color:var(--muted);">Algo (label only, backend uses config):</span>
+    <select id="algoSelect">
+      <option value="fixedWindow">fixedWindow</option>
+      <option value="slidingLog">slidingLog</option>
+      <option value="slidingCounter">slidingCounter</option>
+      <option value="tokenBucket">tokenBucket</option>
+      <option value="leakyBucket">leakyBucket</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <button id="fireOne">Send 1</button>
+    <button id="fireBurst">Burst x10</button>
+    <button id="autoFire">Auto-fire</button>
+    <button id="clearLog">Clear log</button>
+  </div>
+
+  <div class="status-line">
+    Allowed: <span class="allow" id="allowCount">0</span> &nbsp;|&nbsp;
+    Blocked: <span class="block" id="blockCount">0</span> &nbsp;|&nbsp;
+    <span id="connText">not connected</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Traffic Log</div>
+    <div class="log-box" id="logBox">
+      <table id="logTable">
+        <thead>
+          <tr><th>Time</th><th>Status</th><th>Route</th><th>ms</th></tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+      <div class="empty" id="logEmpty">No requests yet.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Client Stats</div>
+    <table>
+      <thead>
+        <tr><th>Client</th><th>Total</th><th>Allowed</th><th>Blocked</th></tr>
+      </thead>
+      <tbody id="statsBody">
+        <tr><td colspan="4" class="empty">No data yet</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+let allowCount = 0, blockCount = 0;
+let autoTimer = null;
+
+const $ = id => document.getElementById(id);
+
+function addLogRow(status, route, ms){
+  $("logEmpty").style.display = "none";
+  const tr = document.createElement("tr");
+  const t = new Date().toLocaleTimeString('en-GB');
+  tr.innerHTML = `<td>${t}</td><td class="${status}">${status}</td><td>${route}</td><td>${ms}</td>`;
+  $("logBody").prepend(tr);
+  while($("logBody").children.length > 100) $("logBody").lastChild.remove();
+}
+
+async function fireRequest(){
+  const base = $("backendUrl").value.replace(/\/$/, "");
+  const route = $("targetRoute").value;
+  const algo = $("algoSelect").value;
+  const url = `${base}${route}?algo=${algo}`;
+  const start = performance.now();
+  try{
+    const res = await fetch(url);
+    const ms = Math.round(performance.now() - start);
+    const allowed = res.status !== 429;
+    $("connText").textContent = "connected";
+
+    if(allowed) allowCount++; else blockCount++;
+    $("allowCount").textContent = allowCount;
+    $("blockCount").textContent = blockCount;
+
+    addLogRow(allowed ? "ALLOW" : "BLOCK", route, ms);
+  }catch(err){
+    $("connText").textContent = "connection failed";
+    addLogRow("BLOCK", route, "-");
+  }
+  fetchStats();
+}
+
+async function fetchStats(){
+  const base = $("backendUrl").value.replace(/\/$/, "");
+  try{
+    const res = await fetch(`${base}/stats`);
+    const data = await res.json();
+    $("connText").textContent = "connected";
+    const entries = Object.entries(data);
+    const body = $("statsBody");
+    if(entries.length === 0){
+      body.innerHTML = `<tr><td colspan="4" class="empty">No data yet</td></tr>`;
+    } else {
+      body.innerHTML = entries.map(([client, s]) => `
+        <tr><td>${client}</td><td>${s.total}</td><td>${s.allowed}</td><td>${s.blocked}</td></tr>
+      `).join("");
+    }
+  }catch(err){
+    $("connText").textContent = "connection failed";
+  }
+}
+
+$("fireOne").onclick = fireRequest;
+$("fireBurst").onclick = () => { for(let i=0;i<10;i++) setTimeout(fireRequest, i*80); };
+$("autoFire").onclick = (e) => {
+  if(autoTimer){
+    clearInterval(autoTimer);
+    autoTimer = null;
+    e.target.classList.remove("active");
+    e.target.textContent = "Auto-fire";
+  } else {
+    autoTimer = setInterval(fireRequest, 350);
+    e.target.classList.add("active");
+    e.target.textContent = "Stop auto-fire";
+  }
+};
+$("clearLog").onclick = () => {
+  $("logBody").innerHTML = "";
+  $("logEmpty").style.display = "block";
+  allowCount = 0; blockCount = 0;
+  $("allowCount").textContent = "0";
+  $("blockCount").textContent = "0";
+};
+
+fetchStats();
+setInterval(fetchStats, 4000);
+</script>
+</body>
+</html>

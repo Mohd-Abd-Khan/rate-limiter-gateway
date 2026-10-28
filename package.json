@@ -1,0 +1,23 @@
+{
+  "name": "rate-limiter-gateway",
+  "version": "1.0.0",
+  "description": "Redis-backed rate limiting reverse proxy",
+  "license": "ISC",
+  "author": "Mohd Abdullah Khan",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^4.1.1",
+    "ioredis": "^5.11.1",
+    "winston": "^3.19.0"
+  }
+}

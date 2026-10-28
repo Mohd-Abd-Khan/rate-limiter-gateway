@@ -1,0 +1,9 @@
+node_modules/
+logs/
+*.log
+*.logs
+.vscode/
+.env
+.env.*
+*.pem
+*.key
